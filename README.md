@@ -4,11 +4,11 @@
 F5 で CodeLLDB のデバッガを起動でき、**事前チェックに落ちたらデバッガも後続の手順も実行されません**。
 
 この拡張は、既存の信頼できる拡張 (CodeLLDB、clangd) をつなぐ「司令塔」で、デバッガも言語サーバも自作していません。
-方針と採用理由は [docs/existing-extensions.md](docs/existing-extensions.md)、動作確認の結果は [docs/verification.md](docs/verification.md)、容量の実測は [docs/size-report.md](docs/size-report.md) を参照してください。
+方針と採用理由、動作確認の結果、容量の実測は、開発用のドキュメントにまとめています (このリポジトリには置いていません)。
 
 > **状況**: コア (検証の実行、fail-fast、`compile_commands.json` 生成、launch / tasks の生成) は実際のツールでテスト済みです。
 > 校舎マシン (Ubuntu 22.04、`-12` 系のツール) の実機で、サンプル 5 つに対して全チェック項目を 1 つずつ実行し、期待どおりの結果になることが報告されています
-> (詳細は [docs/verification.md](docs/verification.md))。
+> (詳細な結果は、開発用のドキュメントにあります)。
 > **VS Code の画面上の動作** (F5 でデバッガが止まること、Problems への表示、clangd の補完) は、まだ確認できていません。
 
 ## 実行の段階
@@ -265,7 +265,7 @@ code --install-extension llvm-vs-code-extensions.vscode-clangd
 - 校舎でどうしてもビルドする場合は、sudo なしで Node 22 を入れる方法として、公式の `tar.xz` を home に展開できます
   (例: `https://nodejs.org/dist/v22.22.0/node-v22.22.0-linux-x64.tar.xz`)。ただし展開後は約 205MB あり、`node_modules` (約 144MB) も加わります。
   **校舎の home の空きは実測で約 1.1GB** (4.7GB 中 3.6GB 使用) でした。CodeLLDB (165MB) と clangd (拡張 1.5MB + バイナリ 225MB) を入れた状態で、さらに Node + `node_modules` で約 350MB 増えるため、余裕は小さくなります。
-  内訳と合計は [docs/size-report.md](docs/size-report.md) を参照してください。
+  内訳と合計は、開発用のドキュメント (容量の実測) にあります。
 - ビルドした後は `rm -rf node_modules` で 144MB を解放できます。
 - **rclone でマウントした Drive 上に、ソース / `node_modules` / `.c42checker/` を置かないでください。**
   小さなファイルが大量にあると極端に遅くなり、VFS キャッシュは home 側に溜まり、ログアウトでマウントも消えます。
@@ -446,7 +446,7 @@ code --install-extension llvm-vs-code-extensions.vscode-clangd
 | `samples/bug-msan` | 初期化していないヒープ領域の読み取り | MSan が fail |
 | `samples/proto-ok` | `src/` 以下の複数ファイル (static 関数・関数ポインタ引数・`unsigned long long` を含む) と、マーカーつきのヘッダ `includes/proj.h` | 「ヘッダにプロトタイプを反映」で、norminette を通るヘッダができ、プロジェクトがコンパイルできる |
 
-実機での確認手順 (F5、依存拡張の導入) は [docs/verification.md](docs/verification.md) を参照してください。
+実機での確認手順 (F5、依存拡張の導入) は、開発用のドキュメントにあります。
 
 ## 開発
 
