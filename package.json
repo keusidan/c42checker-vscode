@@ -8,7 +8,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/keusidan/c42checker"
+    "url": "https://github.com/keusidan/c42checker-vscode"
   },
   "engines": {
     "vscode": "^1.85.0",
