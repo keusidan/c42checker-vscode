@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { augmentDarwinPath } from './tools';
 
 export interface ExecOptions {
   cwd: string;
@@ -46,9 +47,14 @@ export function exec(cmd: string, args: string[], opts: ExecOptions): Promise<Ex
 
     let child;
     try {
+      const baseEnv = opts.env ?? process.env;
+      const env =
+        process.platform === 'darwin' && !(opts.env && 'PATH' in opts.env)
+          ? { ...baseEnv, PATH: augmentDarwinPath(baseEnv.PATH ?? '') }
+          : baseEnv;
       child = spawn(cmd, args, {
         cwd: opts.cwd,
-        env: opts.env ?? process.env,
+        env,
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true,
       });

@@ -578,6 +578,19 @@ const gccAnalyzer: StepDef = {
     // -fanalyzer は -fsyntax-only では動かないため、.o を作業ディレクトリに出力する
     const args = ['-fanalyzer', '-c', ...incFlags(ctx), ...extraCflags(ctx), ...stepArgs(ctx, 'gccAnalyzer'), ...ctx.sources];
     const r = await exec(gcc, args, { cwd: outDir, timeoutMs: staticMs(ctx), signal: ctx.signal });
+    // macOS の /usr/bin/gcc (Apple clang) や古い GCC 等で -fanalyzer が未対応のときは skip にする
+    if (
+      r.code !== 0 &&
+      /unknown argument:\s*'-fanalyzer'|unrecognized command-line option\s+'-fanalyzer'/.test(r.output)
+    ) {
+      return {
+        status: 'skip',
+        diags: [],
+        log: cmdline(gcc, args) + r.output,
+        reason: 'この gcc は -fanalyzer に対応していません (macOS の /usr/bin/gcc は Apple clang のため未対応)',
+        hint: 'macOS で gcc -fanalyzer を使うには `brew install gcc` で GNU GCC を入れてください (使わない場合はチェックを外してください)',
+      };
+    }
     // gcc は analyzer の警告でも終了コード 0 になるため、-Wanalyzer-* の診断を error として扱う
     const diags = parseCompilerOutput(r.output, ctx.root, 'gcc-analyzer').map((d) =>
       d.message.includes('[-Wanalyzer-') ? { ...d, severity: 'error' as const } : d,
@@ -627,7 +640,8 @@ export function isSanitizerStartupCrash(output: string, signal: string | null, h
 }
 
 // sanitizer のランタイム (libclang_rt.*) が無い / このツールチェーンが未対応のとき。ユーザーのコードの問題ではない
-const RUNTIME_MISSING = /libclang_rt\.[a-z_]+-[a-z0-9_]+\.a|unsupported option '-fsanitize|invalid argument '[^']*' to -fsanitize|unsupported option '-fsanitize/;
+const RUNTIME_MISSING =
+  /libclang_rt\.[a-z0-9_.-]+\.(?:a|dylib)|library 'clang_rt\.[^']*' not found|library not found for -lclang_rt|unsupported (?:option|argument) '[^']*'.*-fsanitize|unsupported option '-fsanitize|invalid argument '[^']*' to -fsanitize/;
 // TSan / MSan がカーネルの ASLR 設定などで起動できないとき (環境依存の既知の問題)
 const CANNOT_START = /unexpected memory mapping|ThreadSanitizer: unsupported|MemorySanitizer: unsupported|FATAL: (Thread|Memory)Sanitizer: .*(mapping|ASLR)/i;
 
@@ -650,6 +664,9 @@ export function aslrHint(s: AslrState): string {
     return `setarch -R で ASLR を無効にしても起動できませんでした。ASLR 以外の原因 (clang の版とカーネルの組み合わせ、sanitizer のランタイムなど) の可能性があります。ログの先頭を確認してください。${drop}`;
   }
   if (s.setarchMissing) {
+    if (process.platform === 'darwin') {
+      return `macOS では setarch による ASLR 無効化が使えないため起動できない場合があります。${drop}`;
+    }
     return `setarch (util-linux) が PATH に無いため、ASLR を無効にできませんでした (TSan / MSan は ASLR 無効で起動しないと、環境によって起動できません)。util-linux を入れてください。${drop}`;
   }
   if (s.personalityFailed) {
@@ -670,12 +687,16 @@ function sanitizerStep(spec: SanitizerSpec): StepDef {
       const b = await buildBinary(ctx, path.join(ctx.workDir, spec.dir), flags, 'clang', spec.id);
       if (!b.ok) {
         if (RUNTIME_MISSING.test(b.output)) {
+          const hint =
+            process.platform === 'darwin'
+              ? 'macOS の Apple clang (および一般的な macOS 環境) は MSan 等の一部 sanitizer に非対応です。この項目のチェックを外してください'
+              : 'clang の sanitizer ランタイム (Ubuntu: libclang-rt-<版>-dev、Arch: compiler-rt) が必要です。sudo の無い校舎では、この項目のチェックを外してください';
           return {
             status: 'skip',
             diags: [],
             log: b.output,
             reason: `${spec.label} のランタイムが使えません (この clang が未対応、または libclang_rt が未導入)`,
-            hint: 'clang の sanitizer ランタイム (Ubuntu: libclang-rt-<版>-dev、Arch: compiler-rt) が必要です。sudo の無い校舎では、この項目のチェックを外してください',
+            hint,
           };
         }
         return { status: 'fail', diags: b.diags, log: b.output, reason: `${spec.label} 用のビルドに失敗しました` };
@@ -706,8 +727,13 @@ function sanitizerStep(spec: SanitizerSpec): StepDef {
         r = await runWith(1, false);
         log += cmdline(launch(false).cmd, launch(false).args);
       }
-      if (spec.leaks && /LeakSanitizer has encountered a fatal error|LeakSanitizer does not work under ptrace/.test(r.output)) {
-        log += r.output + '\n[c42checker] この環境では LeakSanitizer が使えないため、リーク検査なしで再実行します (リークは valgrind 側で確認してください)\n';
+      if (
+        spec.leaks &&
+        /LeakSanitizer has encountered a fatal error|LeakSanitizer does not work under ptrace|detect_leaks is not supported on this platform/i.test(
+          r.output,
+        )
+      ) {
+        log += r.output + '\n[c42checker] この環境では LeakSanitizer が使えないため、リーク検査なしで再実行します (リークは valgrind や macOS の `leaks` 等で確認してください)\n';
         r = await runWith(0, viaSetarch);
       }
       log += r.output;

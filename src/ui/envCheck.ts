@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { findOnPath } from '../core/tools';
+import { effectiveEnvPath, findOnPath } from '../core/tools';
 
 const CPPTOOLS = 'ms-vscode.cpptools';
 
@@ -17,10 +17,14 @@ export async function checkEnvironment(state: vscode.Memento): Promise<void> {
   }
 
   const configured = vscode.workspace.getConfiguration('clangd').get<string>('path');
-  if (!configured && !findOnPath('clangd') && !state.get<boolean>('c42checker.clangdNotified')) {
+  if (!configured && !findOnPath('clangd', effectiveEnvPath()) && !state.get<boolean>('c42checker.clangdNotified')) {
     await state.update('c42checker.clangdNotified', true);
+    const storageDir =
+      process.platform === 'darwin'
+        ? '~/Library/Application Support/Code/User/globalStorage/'
+        : '~/.config/Code/User/globalStorage/';
     void vscode.window.showInformationMessage(
-      'c42checker: clangd が PATH にありません。clangd 拡張がバイナリをダウンロードし、home 配下 (~/.config/Code/User/globalStorage/ 以下) に約 225MB (実測) 保存されます。空きが少ないときは `df -h ~` で確認し、clangd 拡張を入れない選択もできます (検証と F5 は clangd に依存しません)。この拡張はダウンロードを代行しません。',
+      `c42checker: clangd が PATH にありません。clangd 拡張がバイナリをダウンロードし、home 配下 (${storageDir} 以下) に約 225MB (実測) 保存されます。空きが少ないときは \`df -h ~\` で確認し、clangd 拡張を入れない選択もできます (検証と F5 は clangd に依存しません)。この拡張はダウンロードを代行しません。`,
     );
   }
 }

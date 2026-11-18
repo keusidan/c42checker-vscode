@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { exec } from './exec';
-import { CANDIDATES, findOnPath } from './tools';
+import { CANDIDATES, effectiveEnvPath, findOnPath } from './tools';
 
 export interface CtagsFunction {
   name: string;
@@ -27,27 +27,29 @@ const verified = new Map<string, boolean>();
  * Universal Ctags の実行ファイルを探す。`ctags` という名前は Exuberant Ctags や Emacs の etags のことがあり、
  * 出力の拡張フィールド (typeref / signature / file:) が無いため、--version で Universal Ctags であることを確認する。
  */
-export async function resolveCtags(envPath = process.env.PATH ?? ''): Promise<CtagsResolved> {
-  const present = CANDIDATES.ctags.filter((n) => findOnPath(n, envPath));
+export async function resolveCtags(envPath = effectiveEnvPath()): Promise<CtagsResolved> {
+  const present = CANDIDATES.ctags
+    .map((n) => ({ name: n, full: findOnPath(n, envPath) }))
+    .filter((x): x is { name: string; full: string } => x.full !== undefined);
   if (present.length === 0) {
     return {
       reason: 'universal-ctags (ctags-universal) が PATH にありません',
-      hint: 'Arch: `sudo pacman -S ctags` / Ubuntu: `sudo apt install universal-ctags`。sudo が使えない環境では、ソースから `--prefix=$HOME/.local` でビルドして PATH に通してください (容量に注意)',
+      hint: 'Arch: `sudo pacman -S ctags` / Ubuntu: `sudo apt install universal-ctags` / macOS: `brew install universal-ctags`。sudo が使えない環境では、ソースから `--prefix=$HOME/.local` でビルドして PATH に通してください (容量に注意)',
     };
   }
-  for (const name of present) {
-    const key = `${envPath}\0${name}`;
+  for (const { full } of present) {
+    const key = `${envPath}\0${full}`;
     let ok = verified.get(key);
     if (ok === undefined) {
-      const r = await exec(name, ['--version'], { cwd: process.cwd(), timeoutMs: 10_000, env: { ...process.env, PATH: envPath } });
+      const r = await exec(full, ['--version'], { cwd: process.cwd(), timeoutMs: 10_000, env: { ...process.env, PATH: envPath } });
       ok = /Universal Ctags/i.test(r.output);
       verified.set(key, ok);
     }
-    if (ok) return { bin: name };
+    if (ok) return { bin: full };
   }
   return {
-    reason: `${present.join(', ')} は Universal Ctags ではありません (Exuberant / GNU 版は、戻り値の型と引数を取り出せないため使えません)`,
-    hint: 'Universal Ctags を入れてください。Arch: `sudo pacman -S ctags` / Ubuntu: `sudo apt install universal-ctags`',
+    reason: `${present.map((p) => p.name).join(', ')} は Universal Ctags ではありません (Exuberant / GNU 版は、戻り値の型と引数を取り出せないため使えません)`,
+    hint: 'Universal Ctags を入れてください。Arch: `sudo pacman -S ctags` / Ubuntu: `sudo apt install universal-ctags` / macOS: `brew install universal-ctags`',
   };
 }
 
