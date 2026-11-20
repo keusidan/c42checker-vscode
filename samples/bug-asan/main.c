@@ -12,22 +12,21 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-
-static size_t	alloc_size(const char *name)
-{
-	if (name == NULL || name[0] == '\0')
-		return (16);
-	return (4);
-}
+#include <string.h>
 
 int	main(int argc, char **argv)
 {
 	char	*buf;
+	size_t	len;
 
-	buf = malloc(alloc_size(argv[0]));
+	(void)argc;
+	len = strlen(argv[0]);
+	if (len == 0)
+		return (0);
+	buf = malloc(4);
 	if (buf == NULL)
 		return (1);
-	buf[argc + 3] = 'x';
+	buf[(len / len) + 3] = 'x';
 	printf("done\n");
 	free(buf);
 	return (0);

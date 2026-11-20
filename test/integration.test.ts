@@ -60,7 +60,7 @@ test('実行時バグ (heap-buffer-overflow): 段階 1 は通り、段階 2 の 
   assert.equal(r.stoppedAt?.stage, 2, `段階 1 は通る想定: ${summary}`);
   const asan = r.results.find((x) => x.id === 'asanUbsan')!;
   assert.equal(asan.status, 'fail');
-  const bugLine = fs.readFileSync(path.join(ctx.root, 'main.c'), 'utf8').split('\n').findIndex((l) => l.includes('buf[argc + 3]')) + 1;
+  const bugLine = fs.readFileSync(path.join(ctx.root, 'main.c'), 'utf8').split('\n').findIndex((l) => l.includes("= 'x';")) + 1;
   assert.ok(bugLine > 0);
   assert.ok(asan.diags.some((d) => d.file.endsWith('main.c') && d.line === bugLine), `main.c:${bugLine} に診断`);
   if (need(ctx, 'valgrind')) assert.equal(status(r, 'valgrind'), 'fail', '同じ段階の valgrind も実行される');
