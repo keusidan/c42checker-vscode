@@ -1,10 +1,21 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { findOnPath } from './tools';
+import { accessSync, constants } from 'node:fs';
+import * as path from 'node:path';
+import { augmentDarwinPath, effectiveEnvPath, findOnPath } from './tools';
 import type { StepResult } from './types';
 
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
+}
+
+function isExecutableFile(p: string): boolean {
+  try {
+    accessSync(p, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -17,14 +28,24 @@ export class C42LspClient {
   private buf = Buffer.alloc(0);
   public onNotification?: (method: string, params: unknown) => void;
 
-  static findBinary(configured?: string): string | undefined {
-    if (configured && findOnPath(configured, process.env.PATH ?? '')) return configured;
-    return findOnPath('c42checker-lsp');
+  static findBinary(configured?: string, envPath = effectiveEnvPath()): string | undefined {
+    if (configured) {
+      if (configured.includes('/') || configured.includes(path.sep)) {
+        return isExecutableFile(configured) ? configured : undefined;
+      }
+      const resolved = findOnPath(configured, envPath);
+      if (resolved) return resolved;
+    }
+    return findOnPath('c42checker-lsp', envPath);
   }
 
   async start(bin: string, rootPath: string, initSettings?: unknown): Promise<void> {
     if (this.proc) return;
-    this.proc = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const env =
+      process.platform === 'darwin'
+        ? { ...process.env, PATH: augmentDarwinPath(process.env.PATH ?? '') }
+        : process.env;
+    this.proc = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'], env });
     this.proc.stdout.on('data', (chunk: Buffer) => this.onData(chunk));
     this.proc.on('exit', () => {
       for (const p of this.pending.values()) p.reject(new Error('c42checker-lsp exited'));

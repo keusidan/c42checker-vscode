@@ -11,6 +11,7 @@ export const STEP_IDS = [
   'tsan',
   'msan',
   'valgrind',
+  'leaks',
   'cbmc',
   'framaC',
 ] as const;
@@ -114,6 +115,7 @@ export const DEFAULT_CHECKS: Record<StepId, boolean> = {
   tsan: false,
   msan: false,
   valgrind: true,
+  leaks: false,
   cbmc: false,
   framaC: false,
 };
@@ -164,6 +166,7 @@ export interface Tools {
   scanBuild?: string; // scan-build-12 → scan-build
   gcc?: string; // gcc-12 → gcc
   valgrind?: string;
+  leaks?: string; // macOS 標準の leaks
   norminette?: string;
   make?: string;
   cbmc?: string;

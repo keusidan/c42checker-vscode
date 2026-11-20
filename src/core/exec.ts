@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { augmentDarwinPath } from './tools';
+import { augmentDarwinPath, detectMacOsSdkRoot } from './tools';
 
 export interface ExecOptions {
   cwd: string;
@@ -21,6 +21,28 @@ export interface ExecResult {
 }
 
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * macOS では GUI 版 VS Code の環境から Homebrew / pipx / SDKROOT が抜けることがあるため、
+ * 呼び出し側が明示的に別の PATH / SDKROOT を指定していない限り補完する。
+ */
+export function buildExecEnv(
+  optsEnv?: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+  procEnv: NodeJS.ProcessEnv = process.env,
+  sdkRoot?: string,
+): NodeJS.ProcessEnv {
+  const baseEnv = optsEnv ?? procEnv;
+  if (platform !== 'darwin') return baseEnv;
+  const customPath = optsEnv !== undefined && 'PATH' in optsEnv && optsEnv.PATH !== procEnv.PATH;
+  const nextPath = customPath ? baseEnv.PATH : augmentDarwinPath(baseEnv.PATH ?? '');
+  const sdk = baseEnv.SDKROOT || sdkRoot || detectMacOsSdkRoot(platform, baseEnv);
+  return {
+    ...baseEnv,
+    ...(nextPath !== undefined ? { PATH: nextPath } : {}),
+    ...(sdk ? { SDKROOT: sdk } : {}),
+  };
+}
 
 /**
  * shell を介さずにコマンドを実行する。stdin は /dev/null。
@@ -47,11 +69,7 @@ export function exec(cmd: string, args: string[], opts: ExecOptions): Promise<Ex
 
     let child;
     try {
-      const baseEnv = opts.env ?? process.env;
-      const env =
-        process.platform === 'darwin' && !(opts.env && 'PATH' in opts.env)
-          ? { ...baseEnv, PATH: augmentDarwinPath(baseEnv.PATH ?? '') }
-          : baseEnv;
+      const env = buildExecEnv(opts.env);
       child = spawn(cmd, args, {
         cwd: opts.cwd,
         env,

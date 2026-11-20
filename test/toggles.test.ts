@@ -105,7 +105,7 @@ test('チェック項目 (段階 1 / 2) の保存と、設定トグルは互い�
   const t = tree();
   const g2 = t.getChildren(group(t, 'g2'));
   const labels = g2.map((n) => t.getTreeItem(n).label);
-  assert.deepEqual(labels, ['ASan + UBSan', 'TSan', 'MSan', 'valgrind'], 'TSan / MSan が選択式の項目として並ぶ');
+  assert.deepEqual(labels, ['ASan + UBSan', 'TSan', 'MSan', 'valgrind', 'leaks (macOS)'], 'TSan / MSan / leaks が選択式の項目として並ぶ');
   const tsan = g2[1];
   assert.equal(t.getTreeItem(tsan).checkboxState, U.Unchecked, 'TSan は既定 OFF');
   await t.onCheckbox([[tsan, U.Checked]]);

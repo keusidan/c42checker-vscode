@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { exec } from './exec';
-import { CANDIDATES, effectiveEnvPath, findOnPath } from './tools';
+import { CANDIDATES, effectiveEnvPath, findAllOnPath } from './tools';
 
 export interface CtagsFunction {
   name: string;
@@ -28,9 +28,17 @@ const verified = new Map<string, boolean>();
  * 出力の拡張フィールド (typeref / signature / file:) が無いため、--version で Universal Ctags であることを確認する。
  */
 export async function resolveCtags(envPath = effectiveEnvPath()): Promise<CtagsResolved> {
-  const present = CANDIDATES.ctags
-    .map((n) => ({ name: n, full: findOnPath(n, envPath) }))
-    .filter((x): x is { name: string; full: string } => x.full !== undefined);
+  // macOS では /usr/bin/ctags (BSD 版) が Homebrew の /opt/homebrew/bin/ctags より先に PATH に現れることがあるため、
+  // 同じ候補名でも PATH 上の全ての実行ファイルを順に確認する。
+  const present: { name: string; full: string }[] = [];
+  const seen = new Set<string>();
+  for (const name of CANDIDATES.ctags) {
+    for (const full of findAllOnPath(name, envPath)) {
+      if (seen.has(full)) continue;
+      seen.add(full);
+      present.push({ name, full });
+    }
+  }
   if (present.length === 0) {
     return {
       reason: 'universal-ctags (ctags-universal) が PATH にありません',

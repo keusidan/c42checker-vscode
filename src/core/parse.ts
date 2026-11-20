@@ -244,6 +244,84 @@ export function parseValgrind(text: string, root: string): ValgrindParse {
   return { diags: dedupe(diags), fdLeaks };
 }
 
+export interface LeaksParse {
+  diags: Diag[];
+  leakCount: number;
+  leakedBytes: number;
+}
+
+const LEAKS_SUMMARY_RE = /Process\s+\d+:\s+(\d+)\s+leaks?\s+for\s+(\d+)\s+total leaked bytes/i;
+const LEAKS_FRAME_FILE_RE = /(?:^|[\s(|])([^\s|()]+?\.[ch]):(\d+)\b/g;
+
+/**
+ * macOS の `leaks -atExit` (および `--list`) の出力からリーク件数とソース位置を取り出す。
+ * 例 (通常形式):
+ *   Process 123: 1 leak for 16 total leaked bytes.
+ *   STACK OF 1 INSTANCE OF 'ROOT LEAK: <malloc in main>':
+ *   2   prog   0x100003f50 main + 48  main.c:12
+ * 例 (--list 形式):
+ *   Leak: 0x600000004010  size=16  zone: DefaultMallocZone_0x104000000
+ *       Call stack: [thread 0x1e0000000]: | start | main (in prog) + 48  main.c:12 | malloc
+ */
+export function parseLeaks(text: string, root: string): LeaksParse {
+  const lines = stripAnsi(text)
+    .split('\n')
+    .map((l) => l.replace(/\r$/, ''));
+  let leakCount = 0;
+  let leakedBytes = 0;
+  for (const line of lines) {
+    const sm = LEAKS_SUMMARY_RE.exec(line);
+    if (sm) {
+      leakCount = Number(sm[1]);
+      leakedBytes = Number(sm[2]);
+    }
+  }
+  const diags: Diag[] = [];
+  const findFrameInLine = (line: string): { file: string; line: number } | undefined => {
+    LEAKS_FRAME_FILE_RE.lastIndex = 0;
+    for (const m of line.matchAll(LEAKS_FRAME_FILE_RE)) {
+      const file = inRootFile(root, m[1]);
+      if (file) return { file, line: Number(m[2]) };
+    }
+    return undefined;
+  };
+  lines.forEach((line, i) => {
+    const stackHead = /^STACK OF (\d+) INSTANCES? OF '([^']+)'/i.exec(line.trim());
+    if (stackHead) {
+      const msg = `leaks: ${stackHead[2]} (${stackHead[1]} instance${stackHead[1] === '1' ? '' : 's'})`;
+      let hit: { file: string; line: number } | undefined;
+      for (let j = i + 1; j < Math.min(lines.length, i + 40); j++) {
+        if (/^====|^STACK OF /i.test(lines[j].trim())) break;
+        const f = findFrameInLine(lines[j]);
+        // leaks のツリー形式は上位フレーム (start → main → helper → malloc) の順に出るため、最後の root 内フレームを採用する
+        if (f) hit = f;
+      }
+      if (hit) {
+        diags.push({ file: hit.file, line: hit.line, col: 1, severity: 'error', message: msg, source: 'leaks' });
+      }
+      return;
+    }
+    const listHead = /^Leak:\s+(0x[0-9a-f]+)\s+size=(\d+)/i.exec(line.trim());
+    if (listHead) {
+      const msg = `leaks: ${listHead[2]} byte(s) leaked (${listHead[1]})`;
+      for (let j = i + 1; j < Math.min(lines.length, i + 10); j++) {
+        if (/^Leak:/i.test(lines[j].trim())) break;
+        let hit: { file: string; line: number } | undefined;
+        LEAKS_FRAME_FILE_RE.lastIndex = 0;
+        for (const m of lines[j].matchAll(LEAKS_FRAME_FILE_RE)) {
+          const file = inRootFile(root, m[1]);
+          if (file) hit = { file, line: Number(m[2]) };
+        }
+        if (hit) {
+          diags.push({ file: hit.file, line: hit.line, col: 1, severity: 'error', message: msg, source: 'leaks' });
+          break;
+        }
+      }
+    }
+  });
+  return { diags: dedupe(diags), leakCount, leakedBytes };
+}
+
 /** CBMC の `[prop] file f.c line 12 msg: FAILURE` */
 export function parseCbmc(text: string, baseDir: string): Diag[] {
   const diags: Diag[] = [];

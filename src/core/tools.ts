@@ -4,8 +4,22 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { StepId, Tools } from './types';
 
+function darwinPythonUserBins(home: string): string[] {
+  const pyRoot = path.join(home, 'Library', 'Python');
+  try {
+    return readdirSync(pyRoot)
+      .filter((name) => /^\d+(\.\d+)*$/.test(name))
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+      .map((name) => path.join(pyRoot, name, 'bin'));
+  } catch {
+    return [];
+  }
+}
+
 const DARWIN_EXTRA_DIRS = (home: string) => [
   path.join(home, '.local', 'bin'),
+  path.join(home, '.cargo', 'bin'),
+  ...darwinPythonUserBins(home),
   '/opt/homebrew/bin',
   '/opt/homebrew/opt/llvm/bin',
   '/usr/local/bin',
@@ -29,6 +43,32 @@ export function effectiveEnvPath(
   if (envPath !== undefined) return envPath;
   const base = process.env.PATH ?? '';
   return platform === 'darwin' ? augmentDarwinPath(base, home) : base;
+}
+
+let macOsSdkCache: string | null | undefined;
+
+/**
+ * macOS の SDK パス (SDKROOT または `xcrun --show-sdk-path`) を返す。
+ * Homebrew の LLVM (`clang-tidy` / `scan-build`) は SDK パスが無いと `<stdio.h>` を見つけられないため使用する。
+ */
+export function detectMacOsSdkRoot(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (platform !== 'darwin') return undefined;
+  if (env.SDKROOT) return env.SDKROOT;
+  if (macOsSdkCache !== undefined) return macOsSdkCache ?? undefined;
+  try {
+    const out = execFileSync('xcrun', ['--show-sdk-path'], {
+      encoding: 'utf8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    macOsSdkCache = out || null;
+  } catch {
+    macOsSdkCache = null;
+  }
+  return macOsSdkCache ?? undefined;
 }
 
 const appleClangCache = new Map<string, boolean>();
@@ -59,6 +99,7 @@ export const CANDIDATES: Record<keyof Tools, string[]> = {
   scanBuild: ['scan-build-12', 'scan-build'],
   gcc: ['gcc-12', 'gcc'],
   valgrind: ['valgrind'],
+  leaks: ['leaks'],
   norminette: ['norminette'],
   make: ['make'],
   cbmc: ['cbmc'],
@@ -70,18 +111,27 @@ export const CANDIDATES: Record<keyof Tools, string[]> = {
   setarch: ['setarch'],
 };
 
-export function findOnPath(name: string, envPath = effectiveEnvPath()): string | undefined {
+/** PATH 上で見つかる全ての実行ファイルのフルパスを順に返す (重複は除く)。 */
+export function findAllOnPath(name: string, envPath = effectiveEnvPath()): string[] {
+  const results: string[] = [];
+  const seen = new Set<string>();
   for (const dir of envPath.split(path.delimiter)) {
     if (!dir) continue;
     const full = path.join(dir, name);
+    if (seen.has(full)) continue;
     try {
       accessSync(full, constants.X_OK);
-      return full;
+      seen.add(full);
+      results.push(full);
     } catch {
       /* 次の候補へ */
     }
   }
-  return undefined;
+  return results;
+}
+
+export function findOnPath(name: string, envPath = effectiveEnvPath()): string | undefined {
+  return findAllOnPath(name, envPath)[0];
 }
 
 /** `base-<N>` 形式の実行ファイルのうち、最も新しい版のフルパスを返す (例: scan-build-18 / gcc-14 のみ入っている環境向け)。 */
@@ -125,8 +175,9 @@ function detectGcc(
 ): string | undefined {
   const rejectApple = (p: string) => platform !== 'darwin' || !isAppleClang(p);
   for (const name of CANDIDATES.gcc) {
-    const found = findOnPath(name, envPath);
-    if (found && rejectApple(found)) return found;
+    for (const found of findAllOnPath(name, envPath)) {
+      if (rejectApple(found)) return found;
+    }
   }
   return findHighestVersioned('gcc', envPath, rejectApple);
 }
@@ -169,6 +220,7 @@ export const STEP_TOOL: Record<StepId, keyof Tools | undefined> = {
   tsan: 'cc',
   msan: 'cc',
   valgrind: 'valgrind',
+  leaks: 'leaks',
   cbmc: 'cbmc',
   framaC: 'framaC',
 };
@@ -179,8 +231,9 @@ export const INSTALL_HINTS: Record<keyof Tools, string> = {
   tidy: 'clang-tidy (校舎: clang-tidy-12) が PATH にありません。Arch: `sudo pacman -S clang` / macOS: `brew install llvm`',
   scanBuild: 'scan-build (校舎: scan-build-12) が PATH にありません。Arch: `sudo pacman -S clang-analyzer` / macOS: `brew install llvm`',
   gcc: 'GNU gcc (校舎: gcc-12) が PATH にありません (macOS の /usr/bin/gcc は Apple clang のため非対応)。-fanalyzer は GCC 10 以降が必要です。macOS: `brew install gcc`',
-  valgrind: 'valgrind が PATH にありません。Arch: `sudo pacman -S valgrind` (macOS 非対応環境ではチェックを外してください)',
-  norminette: 'norminette が PATH にありません。校舎では標準で入っています。自分の機では `pipx install norminette` 等',
+  valgrind: 'valgrind が PATH にありません。Arch: `sudo pacman -S valgrind` (macOS では valgrind 非対応の環境が多いため、代わりに「leaks (macOS)」を有効にし、valgrind のチェックを外してください)',
+  leaks: 'leaks は macOS 標準のメモリリーク検査ツールです (`xcode-select --install` が必要)。Linux では valgrind を使用してください',
+  norminette: 'norminette が PATH にありません。校舎では標準で入っています。自分の機 (Linux / macOS) では `pipx install norminette` (または `pip3 install --user norminette`) 等',
   make: 'make が PATH にありません',
   cbmc: 'cbmc が PATH にありません。ネイティブ版のみ対応です (校舎では Docker image を pull しない方針)',
   framaC: 'frama-c が PATH にありません。ネイティブ版のみ対応です (校舎では Docker image を pull しない方針)',

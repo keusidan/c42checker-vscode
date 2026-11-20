@@ -100,7 +100,7 @@ export function copyProject(srcRoot: string, dest: string, maxBytes: number): vo
   const walk = (from: string, to: string) => {
     fs.mkdirSync(to, { recursive: true });
     for (const e of fs.readdirSync(from, { withFileTypes: true })) {
-      if (skip.has(e.name) || /\.(o|a|so|d)$/.test(e.name)) continue;
+      if (skip.has(e.name) || e.name === '.DS_Store' || /\.(o|a|so|dylib|d|dSYM)$/.test(e.name)) continue;
       const f = path.join(from, e.name);
       const t = path.join(to, e.name);
       if (e.isDirectory()) {

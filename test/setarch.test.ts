@@ -86,8 +86,11 @@ test('setarch が無い環境: 直接起動する。起動できなければ ski
   const r = await runPipeline(ctx, { selected: ['msan'] });
   const x = result(r, 'msan');
   assert.ok(!/setarch/.test(x.log.split('\n').filter((l) => l.startsWith('$ ')).join('\n')), 'setarch を使わない');
-  if (x.status === 'skip') assert.match(x.reason ?? '', /setarch -R を使えないため、ASLR は無効にしていません/);
-  else assert.equal(x.status, 'fail');
+  if (x.status === 'skip' && !/ランタイム/.test(x.reason ?? '')) {
+    assert.match(x.reason ?? '', /setarch -R を使えないため、ASLR は無効にしていません/);
+  } else if (x.status !== 'skip') {
+    assert.equal(x.status, 'fail');
+  }
   cleanup();
 });
 
@@ -160,7 +163,11 @@ test('案内文: setarch が無い → util-linux を入れる', async (t) => {
   const x = await skipFor({ setarch: undefined });
   if (x.status !== 'skip' || /ランタイム/.test(x.reason ?? '')) return t.skip('TSan が使えない');
   assert.match(x.reason ?? '', /ASLR は無効にしていません/);
-  assert.match(x.hint ?? '', /setarch \(util-linux\) が PATH に無い.*util-linux を入れてください/);
+  if (process.platform === 'darwin') {
+    assert.match(x.hint ?? '', /macOS では setarch/);
+  } else {
+    assert.match(x.hint ?? '', /setarch \(util-linux\) が PATH に無い.*util-linux を入れてください/);
+  }
   assert.doesNotMatch(x.hint ?? '', /校舎では不可/);
 });
 

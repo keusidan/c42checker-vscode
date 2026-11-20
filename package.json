@@ -261,7 +261,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "動的チェック (ASan / valgrind) とデバッグ実行に渡す引数。"
+          "description": "動的チェック (ASan / valgrind / leaks) とデバッグ実行に渡す引数。"
         },
         "c42checker.useMakeCheckTarget": {
           "type": "boolean",
@@ -372,6 +372,7 @@
             "tsan": false,
             "msan": false,
             "valgrind": true,
+            "leaks": false,
             "cbmc": false,
             "framaC": false
           },
@@ -518,6 +519,13 @@
                 "type": "string"
               },
               "markdownDescription": "gcc -fanalyzer への引数"
+            },
+            "leaks": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "markdownDescription": "macOS `leaks` のオプション (`-atExit` の後ろ、`--` の前。例: `[\"--list\"]`)"
             },
             "makefile": {
               "type": "array",

@@ -431,6 +431,27 @@ code --install-extension llvm-vs-code-extensions.vscode-clangd
 
 **自動では書き換えないもの**: ユーザー設定 (全体の settings.json) の `c42check.*`、ワークスペースの外にある設定ファイル。必要なら自分で書き換えてください。
 
+## macOS 環境
+
+Apple Silicon / Intel macOS に対応しています。GUI 版 VS Code はシェルの `PATH` を継承しないことがあるため、macOS では `~/.local/bin`、`~/.cargo/bin`、`~/Library/Python/*/bin`、`/opt/homebrew/bin`、`/opt/homebrew/opt/llvm/bin`、`/usr/local/bin`、`/usr/local/opt/llvm/bin` を自動で探索し、`SDKROOT` / `-isysroot` (`xcrun --show-sdk-path`) も自動で補完します。
+
+### ツールの導入例 (macOS)
+
+```sh
+xcode-select --install               # clang / make / leaks
+brew install llvm gcc universal-ctags # clang-tidy / scan-build / GNU gcc -fanalyzer / universal-ctags
+pipx install norminette              # または pip3 install --user norminette
+pipx install c-formatter-42          # 任意
+```
+
+### Linux との違い
+
+- **メモリリーク検査 (`leaks (macOS)`)**: Apple Silicon macOS では `valgrind` と ASan の `detect_leaks=1` が非対応です。段階 2 の **`leaks (macOS)`** にチェックを入れると、macOS 標準の `leaks -atExit` (`MallocStackLogging=1`) でリーク検査とソース行の診断を行います (`valgrind` はチェックを外してください)。
+- **ASan + UBSan**: `detect_leaks=1` が非対応の環境では、自動で `detect_leaks=0` で再実行して ASan / UBSan 検査を継続します。
+- **`gcc -fanalyzer`**: macOS の `/usr/bin/gcc` は実体が Apple clang のため自動で除外します。`brew install gcc` で GNU GCC を入れると `gcc-14` 等を自動検出します。
+- **MSan**: macOS では未対応のため、実行時は失敗ではなく skip になります。
+- **Universal Ctags**: `/usr/bin/ctags` (BSD 版) をスキップして Homebrew の `universal-ctags` (`/opt/homebrew/bin/ctags` 等) を自動検出します。
+
 ## 動作確認用のサンプル
 
 `samples/` の各フォルダを VS Code でフォルダとして開いて試せます (そのフォルダが課題のルートの想定)。

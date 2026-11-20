@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import { normalizeArgs, shellSplit } from '../src/core/args';
 import { compdbFingerprint, generateCompdb } from '../src/core/compdb';
 import { runPipeline } from '../src/core/pipeline';
+import { findOnPath } from '../src/core/tools';
 import { DEFAULT_SETTINGS, STEP_IDS, type Context, type Settings, type StepId, type Tools } from '../src/core/types';
 import { readSettings } from '../src/ui/config';
 import { sampleContext } from './helpers';
@@ -32,14 +33,7 @@ function setupFooLib(dir: string, cc: string): void {
   execFileSync('ar', ['rcs', path.join(dir, 'lib', 'libfoo.a'), path.join(dir, 'lib', 'foo.o')]);
   writeMain(dir, 'int foo_value(void);\nint main(void)\n{\n\treturn (foo_value() - 42);\n}\n');
 }
-const hasAr = (): boolean => {
-  try {
-    execFileSync('ar', ['--version'], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-};
+const hasAr = (): boolean => findOnPath('ar') !== undefined;
 
 /* ───────── 引数の正規化 ───────── */
 
@@ -72,11 +66,13 @@ test('libs: -lfoo が無いとリンクできず fail。ldflags に -L、libs �
   setupFooLib(ok.dir, ok.ctx.tools.cc!);
   const r1 = await runPipeline(ok.ctx, { selected: ['asanUbsan', 'tsan', 'valgrind'], debugBuild: true });
   const summary = r1.results.map((x) => `${x.id}=${x.status}(${x.reason ?? ''})`).join(', ');
-  for (const id of ['asanUbsan', 'valgrind', 'debug-build']) assert.equal(status(r1, id), 'pass', `${id}: ${summary}`);
+  const mustPass = need(ok.ctx, 'valgrind') ? ['asanUbsan', 'valgrind', 'debug-build'] : ['asanUbsan', 'debug-build'];
+  for (const id of mustPass) assert.equal(status(r1, id), 'pass', `${id}: ${summary}`);
   ok.cleanup();
 });
 
 test('順序: -lfoo を ldflags (入力の前) に書くとリンクできない。libs (入力の後ろ) に書くのが正しい', async (t) => {
+  if (process.platform === 'darwin') return t.skip('macOS の Apple ld は静的ライブラリの順序に依存しないため、GNU ld のみ検証する');
   const wrong = sampleContext('ok', { compileLdflags: ['-L${workspaceFolder}/lib', '-lfoo'] }, REMOVE_STR_UTILS);
   if (!need(wrong.ctx, 'cc') || !hasAr()) return t.skip('clang / ar が無い');
   setupFooLib(wrong.dir, wrong.ctx.tools.cc!);

@@ -14,7 +14,7 @@ test('C42LspClient: c42checker-lsp と通信して detectTools を取得でき�
   await client.start(LSP_BIN, process.cwd());
   try {
     const res = await client.executeCommand<{ steps: { id: string }[] }>('c42checker.detectTools');
-    assert.equal(res.steps.length, 14);
+    assert.equal(res.steps.length, 15);
   } finally {
     await client.stop();
   }

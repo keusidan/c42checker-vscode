@@ -16,13 +16,14 @@ import {
   parseCbmc,
   parseCompilerOutput,
   parseFramaC,
+  parseLeaks,
   parseNorminette,
   parseSanitizer,
   parseValgrind,
   stripAnsi,
 } from './parse';
 import { makeTargetExists, findMakefile } from './sources';
-import { INSTALL_HINTS, machineArch } from './tools';
+import { INSTALL_HINTS, detectMacOsSdkRoot, machineArch } from './tools';
 import { copyProject } from './workdir';
 import type { Context, Diag, Stage, StepId, StepOutcome, Tools } from './types';
 
@@ -467,6 +468,21 @@ const warnings: StepDef = {
   },
 };
 
+/**
+ * macOS の Homebrew LLVM 製 clang-tidy は、`-isysroot` が無いと `<stdio.h>` 等を見つけられないことがあるため、
+ * ユーザーが明示的に `-isysroot` を渡していない場合に SDKROOT / xcrun の SDK パスを補う。
+ */
+export function clangTidySdkFlags(
+  cflags: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+  sdkRoot?: string,
+): string[] {
+  if (platform !== 'darwin') return [];
+  if (cflags.some((a) => a === '-isysroot' || a.startsWith('-isysroot'))) return [];
+  const sdk = sdkRoot ?? detectMacOsSdkRoot(platform);
+  return sdk ? ['-isysroot', sdk] : [];
+}
+
 const clangTidy: StepDef = {
   id: 'clangTidy',
   label: 'clang-tidy',
@@ -474,6 +490,7 @@ const clangTidy: StepDef = {
   prerequisite: (ctx) => first(needTool(ctx, 'tidy', 'clang-tidy'), noSources(ctx)),
   async run(ctx) {
     const tidy = ctx.tools.tidy!;
+    const userCflags = extraCflags(ctx);
     // 合否の正は clang-tidy。warning も fail にするため --warnings-as-errors='*' を付ける。
     const args = [
       `-checks=${ctx.settings.clangTidyChecks}`,
@@ -483,7 +500,8 @@ const clangTidy: StepDef = {
       ...ctx.sources,
       '--',
       ...incFlags(ctx),
-      ...extraCflags(ctx),
+      ...userCflags,
+      ...clangTidySdkFlags(userCflags),
     ];
     const r = await exec(tidy, args, { cwd: ctx.root, timeoutMs: staticMs(ctx), signal: ctx.signal });
     const diags = parseCompilerOutput(r.output, ctx.root, 'clang-tidy');
@@ -657,14 +675,14 @@ export interface AslrState {
 }
 
 /** 起動できず skip にしたときの対処案。setarch -R (ASLR 無効) で自動的に回避を試みた結果に合わせる。 */
-export function aslrHint(s: AslrState): string {
+export function aslrHint(s: AslrState, platform: NodeJS.Platform = process.platform): string {
   const drop = 'その場合は、この項目のチェックを外してください';
   if (!s.noAslr) return `ログの先頭を確認してください。${drop}`;
   if (s.viaSetarch) {
     return `setarch -R で ASLR を無効にしても起動できませんでした。ASLR 以外の原因 (clang の版とカーネルの組み合わせ、sanitizer のランタイムなど) の可能性があります。ログの先頭を確認してください。${drop}`;
   }
   if (s.setarchMissing) {
-    if (process.platform === 'darwin') {
+    if (platform === 'darwin') {
       return `macOS では setarch による ASLR 無効化が使えないため起動できない場合があります。${drop}`;
     }
     return `setarch (util-linux) が PATH に無いため、ASLR を無効にできませんでした (TSan / MSan は ASLR 無効で起動しないと、環境によって起動できません)。util-linux を入れてください。${drop}`;
@@ -729,11 +747,11 @@ function sanitizerStep(spec: SanitizerSpec): StepDef {
       }
       if (
         spec.leaks &&
-        /LeakSanitizer has encountered a fatal error|LeakSanitizer does not work under ptrace|detect_leaks is not supported on this platform/i.test(
+        /LeakSanitizer has encountered a fatal error|LeakSanitizer does not work under ptrace|detect_leaks is not supported on this platform|LeakSanitizer is not supported/i.test(
           r.output,
         )
       ) {
-        log += r.output + '\n[c42checker] この環境では LeakSanitizer が使えないため、リーク検査なしで再実行します (リークは valgrind や macOS の `leaks` 等で確認してください)\n';
+        log += r.output + '\n[c42checker] この環境では LeakSanitizer が使えないため、リーク検査なしで再実行します (リークは valgrind や macOS の `leaks (macOS)` 項目で確認してください)\n';
         r = await runWith(0, viaSetarch);
       }
       log += r.output;
@@ -865,6 +883,66 @@ const valgrind: StepDef = {
   },
 };
 
+const LEAKS_ENV_ERROR = /cannot examine process|for security reasons|Operation not permitted|task_for_pid|Unable to inspect/i;
+
+const leaks: StepDef = {
+  id: 'leaks',
+  label: 'leaks (macOS)',
+  stage: 2,
+  note: 'macOS 標準の `leaks -atExit` でメモリリークを検査します (`MallocStackLogging=1`)。Linux では未検出のため skip になります。',
+  prerequisite: (ctx) => first(needTool(ctx, 'leaks', 'leaks'), needTool(ctx, 'cc', 'clang'), noSources(ctx), needMain(ctx)),
+  async run(ctx) {
+    const b = await buildBinary(ctx, path.join(ctx.workDir, 'leaks'), ['-g', '-O0', '-fno-omit-frame-pointer'], 'clang');
+    if (!b.ok) {
+      return { status: 'fail', diags: b.diags, log: b.output, reason: 'leaks 用のビルドに失敗しました' };
+    }
+    const args = ['-atExit', ...stepArgs(ctx, 'leaks'), '--', b.bin, ...ctx.settings.runArgs];
+    const r = await exec(ctx.tools.leaks!, args, {
+      cwd: ctx.root,
+      timeoutMs: runMs(ctx) * 3,
+      signal: ctx.signal,
+      env: { ...process.env, MallocStackLogging: '1' },
+    });
+    const log = b.output + cmdline('leaks', args) + r.output;
+    if (r.timedOut) {
+      return {
+        status: 'skip',
+        diags: [],
+        log,
+        reason: `制限時間 ${ctx.settings.runTimeoutSec * 3} 秒で中断したため検査が完了していません`,
+        hint: '`c42checker.runTimeoutSec` を延ばす、`c42checker.runArgs` で終了する引数を渡す、または GUI / 無限ループの課題ならこの項目のチェックを外してください',
+      };
+    }
+    const parsed = parseLeaks(r.output, ctx.root);
+    if (parsed.leakCount === 0 && r.code !== 0 && LEAKS_ENV_ERROR.test(r.output)) {
+      return {
+        status: 'skip',
+        diags: [],
+        log,
+        reason: 'macOS の権限 / セキュリティ制限により leaks がプロセスを検査できませんでした',
+        hint: 'ターミナルで `DevToolsSecurity -enable` を確認するか、Xcode Command Line Tools / Developer Mode の設定を確認してください',
+      };
+    }
+    const leaked = parsed.leakCount > 0 || (r.code === 1 && !r.error);
+    const failed = leaked || r.signal !== null || !!r.error || (r.code !== 0 && r.code !== null);
+    return {
+      status: failed ? 'fail' : 'pass',
+      diags: parsed.diags,
+      log,
+      reason: failed
+        ? r.error ??
+          (leaked
+            ? parsed.leakCount > 0
+              ? `leaks がメモリリークを検出しました (${parsed.leakCount} 件, ${parsed.leakedBytes} bytes)`
+              : 'leaks がメモリリークを検出しました'
+            : r.signal !== null
+              ? `シグナル ${r.signal} で終了しました`
+              : `leaks が終了コード ${r.code} で終了しました`)
+        : undefined,
+    };
+  },
+};
+
 const cbmc: StepDef = {
   id: 'cbmc',
   label: 'CBMC (任意)',
@@ -902,7 +980,7 @@ const framaC: StepDef = {
 };
 
 /** 実行順 (段階 1 → 段階 2、段階内は宣言順)。 */
-export const STEPS: StepDef[] = [cFormatter, norminette, normExtraStep, makefileStep, warnings, clangTidy, scanBuild, gccAnalyzer, asanUbsan, tsan, msan, valgrind, cbmc, framaC];
+export const STEPS: StepDef[] = [cFormatter, norminette, normExtraStep, makefileStep, warnings, clangTidy, scanBuild, gccAnalyzer, asanUbsan, tsan, msan, valgrind, leaks, cbmc, framaC];
 
 export function stepById(id: StepId): StepDef {
   const s = STEPS.find((x) => x.id === id);
