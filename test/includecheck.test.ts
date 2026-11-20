@@ -97,12 +97,13 @@ test('提供する名前が重なる include (size_t だけを使うとき): 両
 });
 
 test('重なる include と、本当に未使用の include が混ざっているとき: 未使用だけが error、重なる方は review', async (t) => {
+  // macOS の <ctype.h> は size_t を推移的に定義するため、Linux / macOS どちらでも size_t を定義しない <limits.h> を使う
   const { ctx, cleanup } = project({
-    'a.c': '#include <ctype.h>\n#include <stdlib.h>\n#include <stdio.h>\n\nsize_t\tft_a(void)\n{\n\treturn (0);\n}\n',
+    'a.c': '#include <limits.h>\n#include <stdlib.h>\n#include <stdio.h>\n\nsize_t\tft_a(void)\n{\n\treturn (0);\n}\n',
   });
   if (!need(ctx)) return t.skip('clang が無い');
   const r = await judge(ctx);
-  assert.deepEqual(names(r.findings, 'error'), ['<ctype.h>']);
+  assert.deepEqual(names(r.findings, 'error'), ['<limits.h>']);
   assert.deepEqual(names(r.findings, 'review'), ['<stdio.h>', '<stdlib.h>']);
   cleanup();
 });
@@ -118,14 +119,15 @@ test('コメントで理由を書いた include は判定しない (Norm III.5)'
 });
 
 test('ヘッダファイル: そのヘッダを include する .c が使っている include は必要。誰も使っていないものは未使用', async (t) => {
+  // macOS の <stdlib.h> は uint8_t を推移的に定義するため、Linux / macOS どちらでも <stdlib.h> から見えない <limits.h> (INT_MAX) を使う
   const { ctx, cleanup } = project({
-    'ft.h': '#ifndef FT_H\n# define FT_H\n\n# include <stdlib.h>\n# include <string.h>\n# include <stdint.h>\n\nuint8_t\tft_low(int c);\n\n#endif\n',
+    'ft.h': '#ifndef FT_H\n# define FT_H\n\n# include <stdlib.h>\n# include <string.h>\n# include <limits.h>\n\n# define FT_LIMIT INT_MAX\n\nint\tft_limit(void);\n\n#endif\n',
     'a.c': '#include "ft.h"\n\nvoid\t*ft_a(void)\n{\n\treturn (malloc(1));\n}\n',
-    'b.c': '#include "ft.h"\n\nuint8_t\tft_low(int c)\n{\n\treturn ((uint8_t)c);\n}\n',
+    'b.c': '#include "ft.h"\n\nint\tft_limit(void)\n{\n\treturn (FT_LIMIT);\n}\n',
   });
   if (!need(ctx)) return t.skip('clang が無い');
   const r = await judge(ctx);
-  assert.deepEqual(names(r.findings, 'error', 'ft.h'), ['<string.h>'], 'stdlib は a.c が malloc に使う / stdint は ft.h 自身が uint8_t に使う / string は誰も使わない');
+  assert.deepEqual(names(r.findings, 'error', 'ft.h'), ['<string.h>'], 'stdlib は a.c が malloc に使う / limits は b.c が FT_LIMIT (INT_MAX) に使う / string は誰も使わない');
   cleanup();
 });
 

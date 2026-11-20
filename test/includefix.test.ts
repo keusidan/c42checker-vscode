@@ -104,7 +104,8 @@ test('ON: ヘッダファイルの未使用 include も削除する。include �
 });
 
 test('ON: 提供する名前が重なる include (review) / コメントで理由を書いた include は削除しない', async (t) => {
-  const src = '#include <stdlib.h>\n#include <stdio.h>\n#include <ctype.h> // kept on purpose\n\nsize_t\tft_a(void)\n{\n\treturn (0);\n}\n';
+  // macOS の <ctype.h> は size_t を推移的に定義するため、Linux / macOS どちらでも size_t を定義しない <limits.h> を使う
+  const src = '#include <stdlib.h>\n#include <stdio.h>\n#include <limits.h> // kept on purpose\n\nsize_t\tft_a(void)\n{\n\treturn (0);\n}\n';
   const { ctx, read, cleanup } = project({ 'a.c': src });
   if (!need(ctx)) return t.skip('clang が無い');
   const s = step(await runPipeline(ctx, { selected: ['normExtra'] }));
@@ -115,11 +116,11 @@ test('ON: 提供する名前が重なる include (review) / コメントで理�
 });
 
 test('ON: 削除した行より後ろの review の行番号は、削除後のファイルのものに直る', async (t) => {
-  const src = '#include <ctype.h>\n#include <stdlib.h>\n#include <stdio.h>\n\nsize_t\tft_a(void)\n{\n\treturn (0);\n}\n';
+  const src = '#include <limits.h>\n#include <stdlib.h>\n#include <stdio.h>\n\nsize_t\tft_a(void)\n{\n\treturn (0);\n}\n';
   const { ctx, read, cleanup } = project({ 'a.c': src });
   if (!need(ctx)) return t.skip('clang が無い');
   const s = step(await runPipeline(ctx, { selected: ['normExtra'] }));
-  assert.equal(read('a.c'), src.replace('#include <ctype.h>\n', ''), 'ctype だけが消える');
+  assert.equal(read('a.c'), src.replace('#include <limits.h>\n', ''), 'limits だけが消える');
   const lines = s.diags.filter((d) => /重なって/.test(d.message)).map((d) => d.line).sort();
   assert.deepEqual(lines, [1, 2], '<stdlib.h> は 1 行目、<stdio.h> は 2 行目になった');
   assert.equal(read('a.c').split('\n')[0], '#include <stdlib.h>');

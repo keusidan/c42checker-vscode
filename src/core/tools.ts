@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { accessSync, constants, readdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -77,17 +77,17 @@ const appleClangCache = new Map<string, boolean>();
 export function isAppleClangCompiler(binPath: string): boolean {
   const cached = appleClangCache.get(binPath);
   if (cached !== undefined) return cached;
-  let result = false;
-  try {
-    const out = execFileSync(binPath, ['--version'], {
-      encoding: 'utf8',
-      timeout: 2000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    result = /Apple (?:clang|LLVM) version|\bclang version\b/i.test(out);
-  } catch {
-    result = false;
+  const r = spawnSync(binPath, ['--version'], {
+    encoding: 'utf8',
+    timeout: 10_000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (r.error) {
+    // 初回 xcrun 起動のタイムアウト等では false をキャッシュしない
+    return false;
   }
+  const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
+  const result = /Apple (?:clang|LLVM) version|\bclang version\b/i.test(out);
   appleClangCache.set(binPath, result);
   return result;
 }

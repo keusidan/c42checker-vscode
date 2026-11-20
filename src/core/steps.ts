@@ -599,7 +599,7 @@ const gccAnalyzer: StepDef = {
     // macOS の /usr/bin/gcc (Apple clang) や古い GCC 等で -fanalyzer が未対応のときは skip にする
     if (
       r.code !== 0 &&
-      /unknown argument:\s*'-fanalyzer'|unrecognized command-line option\s+'-fanalyzer'/.test(r.output)
+      /unknown argument:?\s*'-fanalyzer'|unrecognized command-line option\s+'-fanalyzer'/.test(r.output)
     ) {
       return {
         status: 'skip',

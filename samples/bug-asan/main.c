@@ -13,12 +13,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static size_t	alloc_size(const char *name)
+{
+	if (name == NULL || name[0] == '\0')
+		return (16);
+	return (4);
+}
+
 int	main(int argc, char **argv)
 {
 	char	*buf;
 
-	(void)argv;
-	buf = malloc(4);
+	buf = malloc(alloc_size(argv[0]));
 	if (buf == NULL)
 		return (1);
 	buf[argc + 3] = 'x';
