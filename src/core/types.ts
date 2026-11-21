@@ -154,7 +154,7 @@ export const DEFAULT_SETTINGS: Settings = {
   compileLibs: [],
   compileWarningFlags: ['-Wall', '-Wextra', '-Werror', '-Wshadow', '-Wconversion'],
   compilePerStep: {},
-  clangTidyChecks: 'clang-analyzer-*,bugprone-*',
+  clangTidyChecks: 'clang-analyzer-*,bugprone-*,-bugprone-easily-swappable-parameters',
   valgrindArgs: ['--leak-check=full', '--show-leak-kinds=all', '--track-fds=yes'],
   checks: { ...DEFAULT_CHECKS },
 };

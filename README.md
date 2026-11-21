@@ -18,7 +18,7 @@ F5 で CodeLLDB のデバッガを起動でき、**事前チェックに落ち�
 | 段階 | 内容 |
 |---|---|
 | 0 準備 | 空き容量の確認 → `.c42checker/` の作り直し → ツール検出 → `compile_commands.json` / `.clangd` の生成 (**初回と、必要なときだけ**。実行のたびには書き直しません) |
-| 1 事前チェック (静的) | (任意) c_formatter_42 による整形 → norminette / **Norm の (*) 規則** / **Makefile (Norm III.11)** / 警告強化ビルド (`-Wall -Wextra -Werror -Wshadow -Wconversion`) / clang-tidy (`clang-analyzer-*,bugprone-*`) / scan-build / `gcc -fanalyzer` |
+| 1 事前チェック (静的) | (任意) c_formatter_42 による整形 → norminette / **Norm の (*) 規則** / **Makefile (Norm III.11)** / 警告強化ビルド (`-Wall -Wextra -Werror -Wshadow -Wconversion`) / clang-tidy (`clang-analyzer-*,bugprone-*,-bugprone-easily-swappable-parameters`) / scan-build / `gcc -fanalyzer` |
 | 2 動的チェック | ASan(AddressSanitizer) + UBSan(UndefinedBehaviorSanitizer) / TSan(ThreadSanitizer) / MSan(MemorySanitizer) / valgrind を、**項目ごとに別ビルド**で実行。任意で CBMC / Frama-C Eva (ネイティブにある場合のみ) |
 | 3 デバッガ | F5 経由のときのみ。デバッグ用ビルド (`.c42checker/debug/prog`) の後、CodeLLDB が起動 |
 
@@ -171,7 +171,7 @@ Makefile が無いプロジェクトでは skip です。Makefile が実行す�
 | `c42checker.compile.libs` | リンクする全ビルドの、**入力ファイルの後ろ** | `-lbsd`、`-lm`、`-lreadline` など。**`-l` は必ずここに書く** |
 | `c42checker.compile.perStep` | **その項目のツールにだけ**渡す引数。キーは `c42checker.checks` と同じ項目名 | 下の表 |
 | `c42checker.compile.warningFlags` | 警告強化ビルドの警告フラグ (既定値を**置き換える**) | 既定: `-Wall -Wextra -Werror -Wshadow -Wconversion` |
-| `c42checker.clangTidy.checks` | clang-tidy の `-checks=` (既定値を**置き換える**) | 既定: `clang-analyzer-*,bugprone-*` |
+| `c42checker.clangTidy.checks` | clang-tidy の `-checks=` (既定値を**置き換える**) | 既定: `clang-analyzer-*,bugprone-*,-bugprone-easily-swappable-parameters` |
 | `c42checker.valgrind.args` | valgrind のオプション (既定値を**置き換える**) | 既定: `--leak-check=full --show-leak-kinds=all --track-fds=yes`。判定に必要な `--error-exitcode` は常に付く |
 
 - **`-l` を `libs` に分けてあるのは、リンクの順序のためです。** 静的ライブラリ (`.a`) や、`--as-needed` で動くリンカーは、参照する側のファイルより**後ろ**にあるライブラリしか使いません。

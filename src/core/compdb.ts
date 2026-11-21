@@ -178,21 +178,23 @@ export async function generateCompdb(ctx: Context): Promise<CompdbResult> {
   return { method, entries: entries.length, note };
 }
 
-export function clangdContent(): string {
+export function clangdContent(includeDirs: readonly string[] = []): string {
+  const flags = ['-Wall', '-Wextra', '-Wshadow', '-Wconversion', ...includeDirs.map((d) => `-I${d}`)];
   return [
     `${CLANGD_MARKER} — ファイルが無いときだけ作ります (実行のたびには上書きしません)。作り直すには、このファイルを消してから「c42checker: compile_commands.json を再生成」を実行してください`,
     '# clangd 内蔵の clang-tidy は編集中の参考表示です。合否判定は c42checker の clang-tidy-12 の結果が正です。',
     'CompileFlags:',
-    '  Add: [-Wall, -Wextra, -Wshadow, -Wconversion]',
+    `  Add: [${flags.join(', ')}]`,
     'Diagnostics:',
     '  ClangTidy:',
     '    Add: [clang-analyzer-*, bugprone-*]',
+    '    Remove: [bugprone-easily-swappable-parameters]',
     '',
   ].join('\n');
 }
 
 /** .clangd を書く。自分が作ったもの以外は上書きしない。戻り値は書いたか。 */
-export function generateClangd(root: string): { written: boolean; reason?: string } {
+export function generateClangd(root: string, includeDirs: readonly string[] = []): { written: boolean; reason?: string } {
   const file = path.join(root, '.clangd');
   if (fs.existsSync(file)) {
     const head = fs.readFileSync(file, 'utf8').split('\n', 1)[0];
@@ -200,7 +202,7 @@ export function generateClangd(root: string): { written: boolean; reason?: strin
       return { written: false, reason: '既存の .clangd (c42checker 製ではない) があるため上書きしませんでした' };
     }
   }
-  fs.writeFileSync(file, clangdContent());
+  fs.writeFileSync(file, clangdContent(includeDirs));
   return { written: true };
 }
 
@@ -305,10 +307,10 @@ export async function ensureGenerated(ctx: Context, opts: { force?: boolean } = 
   const clangdFile = path.join(ctx.root, '.clangd');
   let clangd: EnsureResult['clangd'];
   if (!fs.existsSync(clangdFile)) {
-    generateClangd(ctx.root);
+    generateClangd(ctx.root, ctx.includeDirs);
     clangd = { action: 'generated' };
   } else if (opts.force) {
-    const r = generateClangd(ctx.root);
+    const r = generateClangd(ctx.root, ctx.includeDirs);
     clangd = r.written ? { action: 'generated' } : { action: 'foreign', reason: r.reason };
   } else {
     clangd = { action: 'unchanged' };

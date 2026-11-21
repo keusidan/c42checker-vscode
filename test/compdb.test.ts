@@ -71,12 +71,17 @@ test('mainFile は compdb.includeMain で含める / 含めないを切り替え
   }
 });
 
-test('.clangd: 自作のものは更新し、他人のものは上書きしない', () => {
-  const { dir, cleanup } = sampleContext('ok');
-  assert.equal(generateClangd(dir).written, true);
-  assert.equal(generateClangd(dir).written, true, '自作は再生成できる');
+test('.clangd: 自作のものは更新し、他人のものは上書きしない。プロジェクトのヘッダのフルパスと easily-swappable-parameters 抑制が入る', () => {
+  const { ctx, dir, cleanup } = sampleContext('proto-ok');
+  assert.equal(generateClangd(dir, ctx.includeDirs).written, true);
+  const text = fs.readFileSync(path.join(dir, '.clangd'), 'utf8');
+  assert.match(text, /Remove: \[bugprone-easily-swappable-parameters\]/);
+  for (const inc of ctx.includeDirs) {
+    assert.ok(text.includes(`-I${inc}`), `.clangd に -I${inc} が含まれる`);
+  }
+  assert.equal(generateClangd(dir, ctx.includeDirs).written, true, '自作は再生成できる');
   fs.writeFileSync(path.join(dir, '.clangd'), 'CompileFlags:\n  Add: [-DMINE]\n');
-  const r = generateClangd(dir);
+  const r = generateClangd(dir, ctx.includeDirs);
   assert.equal(r.written, false);
   assert.match(fs.readFileSync(path.join(dir, '.clangd'), 'utf8'), /-DMINE/);
   cleanup();

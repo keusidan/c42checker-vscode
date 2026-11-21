@@ -458,7 +458,7 @@
         },
         "c42checker.clangTidy.checks": {
           "type": "string",
-          "default": "clang-analyzer-*,bugprone-*",
+          "default": "clang-analyzer-*,bugprone-*,-bugprone-easily-swappable-parameters",
           "markdownDescription": "clang-tidy の `-checks=` に渡す値 (既定値を置き換える)。例: `clang-analyzer-*,bugprone-*,-bugprone-easily-swappable-parameters`"
         },
         "c42checker.valgrind.args": {
